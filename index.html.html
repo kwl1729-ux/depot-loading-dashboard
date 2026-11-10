@@ -1,0 +1,1790 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>副倉庫配送車積載率管理決策儀表板</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- SheetJS (xlsx) for offline local excel parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang TC", "Microsoft JhengHei", "微軟正黑體", sans-serif;
+    }
+    /* 強化頁籤按鈕樣式，確保選中與未選中極度清晰顯眼 */
+    .tab-pill {
+      position: relative;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 0.625rem;
+    }
+    .tab-pill.active {
+      background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+      color: #FFFFFF !important;
+      font-weight: 700;
+      box-shadow: 0 4px 14px -1px rgba(37, 99, 235, 0.5), 0 2px 6px -1px rgba(37, 99, 235, 0.3);
+      border: 1px solid rgba(147, 197, 253, 0.5);
+    }
+    .tab-pill.active .tab-icon {
+      color: #93C5FD !important;
+    }
+    .tab-pill.active .tab-badge {
+      background-color: rgba(255, 255, 255, 0.25);
+      color: #FFFFFF;
+    }
+    .tab-pill:not(.active) {
+      color: #CBD5E1;
+      background-color: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .tab-pill:not(.active):hover {
+      background-color: rgba(255, 255, 255, 0.15);
+      color: #FFFFFF;
+      border-color: rgba(255, 255, 255, 0.25);
+      transform: translateY(-1px);
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased min-h-screen flex flex-col">
+
+  <!-- 頂部導航列 -->
+  <header class="bg-slate-900 text-white shadow-md sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-3">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center font-black text-lg shadow">
+          <i class="fa-solid fa-truck-fast"></i>
+        </div>
+        <div>
+          <h1 class="text-lg md:text-xl font-bold tracking-tight">副倉庫配送車積載率管理決策儀表板</h1>
+          <p class="text-xs text-slate-400">涵蓋 SDTC / SDHN 雙倉共 36 條標準路線 (2026年5月~10月營運分析)</p>
+        </div>
+      </div>
+
+      <!-- 操作按鈕群 -->
+      <div class="flex items-center space-x-2">
+        <label class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold cursor-pointer transition flex items-center space-x-1.5 shadow">
+          <i class="fa-solid fa-file-excel"></i>
+          <span>上傳新版 Excel 更新</span>
+          <input type="file" id="excelFileInput" accept=".xlsx, .xls" class="hidden" onchange="handleExcelUpload(event)">
+        </label>
+        <button onclick="window.print()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5">
+          <i class="fa-solid fa-print"></i>
+          <span>列印 / 匯出 PDF</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 頁籤切換選單 (強化視覺區隔與切換反饋) -->
+    <div class="bg-slate-950/80 border-t border-slate-800/80 py-2.5 px-4 backdrop-blur-sm">
+      <div class="max-w-7xl mx-auto flex items-center space-x-2 md:space-x-3 overflow-x-auto no-scrollbar">
+        
+        <button onclick="switchTab('overview')" id="tab-overview" class="tab-pill active px-4 py-2 text-xs md:text-sm flex items-center space-x-2 whitespace-nowrap cursor-pointer">
+          <span class="tab-badge w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold">1</span>
+          <i class="tab-icon fa-solid fa-chart-pie text-slate-400"></i>
+          <span>主管決策總覽</span>
+        </button>
+
+        <button onclick="switchTab('drilldown')" id="tab-drilldown" class="tab-pill px-4 py-2 text-xs md:text-sm flex items-center space-x-2 whitespace-nowrap cursor-pointer">
+          <span class="tab-badge w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold bg-white/10 text-slate-300">2</span>
+          <i class="tab-icon fa-solid fa-sitemap text-slate-400"></i>
+          <span>36條路線與據點穿透總表</span>
+        </button>
+
+        <button onclick="switchTab('trends')" id="tab-trends" class="tab-pill px-4 py-2 text-xs md:text-sm flex items-center space-x-2 whitespace-nowrap cursor-pointer">
+          <span class="tab-badge w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold bg-white/10 text-slate-300">3</span>
+          <i class="tab-icon fa-solid fa-calendar-days text-slate-400"></i>
+          <span>倉別月度趨勢表</span>
+        </button>
+
+        <button onclick="switchTab('outliers')" id="tab-outliers" class="tab-pill px-4 py-2 text-xs md:text-sm flex items-center space-x-2 whitespace-nowrap cursor-pointer">
+          <span class="tab-badge w-5 h-5 rounded-full text-[10px] flex items-center justify-center font-bold bg-white/10 text-slate-300">4</span>
+          <i class="tab-icon fa-solid fa-triangle-exclamation text-slate-400"></i>
+          <span>異常離群值查核 (12筆)</span>
+        </button>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- 提示通知條 (可隱藏) -->
+  <div id="alertBox" class="hidden bg-blue-50 border-b border-blue-200 text-blue-800 text-xs py-2 px-4 text-center font-medium"></div>
+
+  <!-- 主體容器 -->
+  <main class="max-w-7xl mx-auto px-4 py-6 space-y-6 flex-1 w-full">
+
+    <!-- ==================== TAB 1: 主管決策總覽 ==================== -->
+    <div id="view-overview" class="space-y-6">
+      
+      <!-- 5 大核心指標卡 -->
+      <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">有效出車總班次</p>
+          <p id="kpi-trips" class="text-2xl font-black text-slate-900 mt-1">5,207 <span class="text-xs font-normal text-slate-500">車次</span></p>
+          <p class="text-[11px] text-emerald-600 font-medium mt-1">日配 2,463 | 夜配 2,744</p>
+        </div>
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">全期載運總貨量</p>
+          <p id="kpi-volume" class="text-2xl font-black text-slate-900 mt-1">54,397.3 <span class="text-xs font-normal text-slate-500">噸</span></p>
+          <p class="text-[11px] text-blue-600 font-medium mt-1">SDTC 26.9k | SDHN 27.5k</p>
+        </div>
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">全期平均積載率</p>
+          <p id="kpi-rate" class="text-2xl font-black text-blue-900 mt-1">78.50%</p>
+          <p class="text-[11px] text-slate-500 font-medium mt-1">總容積 69,293.9 噸</p>
+        </div>
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">單日超載出車比率</p>
+          <p id="kpi-overload" class="text-2xl font-black text-rose-600 mt-1">23.01%</p>
+          <p class="text-[11px] text-rose-500 font-medium mt-1">共 1,198 班次超載</p>
+        </div>
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm col-span-2 lg:col-span-1">
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">排除異常離群班次</p>
+          <p id="kpi-outliers" class="text-2xl font-black text-amber-600 mt-1">12 <span class="text-xs font-normal text-slate-500">班次</span></p>
+          <p class="text-[11px] text-slate-500 font-medium mt-1">8.5t&gt;20t | 13.9t&gt;34t</p>
+        </div>
+      </div>
+
+      <!-- 四大組別體質卡片 (嚴格依序：SDTC 日 ➔ SDTC 夜 ➔ SDHN 日 ➔ SDHN 夜) -->
+      <div>
+        <h2 class="text-sm font-bold text-slate-800 mb-3 flex items-center space-x-2">
+          <span>四大組別營運體質比較（按指定順序：SDTC 日/夜 ➔ SDHN 日/夜）</span>
+        </h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          
+          <!-- 1. SDTC 日配 -->
+          <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <div class="flex justify-between items-start">
+              <div>
+                <span class="text-xs font-bold text-slate-400">第一順位</span>
+                <h3 class="text-base font-bold text-slate-800">SDTC 日配組 (A~K 9條)</h3>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">健康穩健</span>
+            </div>
+            <div class="mt-3 flex items-baseline justify-between">
+              <span class="text-xs text-slate-500">平均積載率</span>
+              <span class="text-xl font-black text-emerald-700">75.29%</span>
+            </div>
+            <div class="w-full bg-slate-100 rounded-full h-1.5 mt-1.5 overflow-hidden">
+              <div class="bg-emerald-500 h-1.5 rounded-full" style="width: 75.3%"></div>
+            </div>
+            <div class="mt-2.5 text-[11px] text-slate-500 flex justify-between">
+              <span>出車 1,304 次</span>
+              <span>運量 13,057.4t</span>
+              <span>超載率 16.5%</span>
+            </div>
+          </div>
+
+          <!-- 2. SDTC 夜配 -->
+          <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <div class="flex justify-between items-start">
+              <div>
+                <span class="text-xs font-bold text-slate-400">第二順位</span>
+                <h3 class="text-base font-bold text-slate-800">SDTC 夜配組 (A~K 9條)</h3>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">供需均衡</span>
+            </div>
+            <div class="mt-3 flex items-baseline justify-between">
+              <span class="text-xs text-slate-500">平均積載率</span>
+              <span class="text-xl font-black text-emerald-700">79.97%</span>
+            </div>
+            <div class="w-full bg-slate-100 rounded-full h-1.5 mt-1.5 overflow-hidden">
+              <div class="bg-emerald-500 h-1.5 rounded-full" style="width: 80.0%"></div>
+            </div>
+            <div class="mt-2.5 text-[11px] text-slate-500 flex justify-between">
+              <span>出車 1,303 次</span>
+              <span>運量 13,862.6t</span>
+              <span>超載率 21.6%</span>
+            </div>
+          </div>
+
+          <!-- 3. SDHN 日配 -->
+          <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <div class="flex justify-between items-start">
+              <div>
+                <span class="text-xs font-bold text-slate-400">第三順位</span>
+                <h3 class="text-base font-bold text-slate-800">SDHN 日配組 (K1~K8 8條)</h3>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">運能過剩</span>
+            </div>
+            <div class="mt-3 flex items-baseline justify-between">
+              <span class="text-xs text-slate-500">平均積載率</span>
+              <span class="text-xl font-black text-amber-700">54.96%</span>
+            </div>
+            <div class="w-full bg-slate-100 rounded-full h-1.5 mt-1.5 overflow-hidden">
+              <div class="bg-amber-500 h-1.5 rounded-full" style="width: 55.0%"></div>
+            </div>
+            <div class="mt-2.5 text-[11px] text-slate-500 flex justify-between">
+              <span>出車 1,159 次</span>
+              <span>運量 8,423.8t</span>
+              <span>超載率 4.2%</span>
+            </div>
+          </div>
+
+          <!-- 4. SDHN 夜配 -->
+          <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <div class="flex justify-between items-start">
+              <div>
+                <span class="text-xs font-bold text-slate-400">第四順位</span>
+                <h3 class="text-base font-bold text-slate-800">SDHN 夜配組 (K21~K30 10條)</h3>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">極度超載</span>
+            </div>
+            <div class="mt-3 flex items-baseline justify-between">
+              <span class="text-xs text-slate-500">平均積載率</span>
+              <span class="text-xl font-black text-rose-700">98.77%</span>
+            </div>
+            <div class="w-full bg-slate-100 rounded-full h-1.5 mt-1.5 overflow-hidden">
+              <div class="bg-rose-600 h-1.5 rounded-full" style="width: 98.8%"></div>
+            </div>
+            <div class="mt-2.5 text-[11px] text-slate-500 flex justify-between">
+              <span>出車 1,441 次</span>
+              <span>運量 19,053.6t</span>
+              <span>超載率 45.2%</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 圖表區 -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
+          <div class="flex justify-between items-center mb-3">
+            <h3 class="text-sm font-bold text-slate-800">36 條路線全期積載率排行（依負載由高至低）</h3>
+            <span class="text-xs text-slate-400">紅線 = 100% 額定滿載標準</span>
+          </div>
+          <div class="h-64">
+            <canvas id="routeBarChart"></canvas>
+          </div>
+        </div>
+        <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="flex justify-between items-center mb-3">
+            <h3 class="text-sm font-bold text-slate-800">四大時段組別負載對比</h3>
+            <span class="text-xs text-slate-400">平均積載率 (%)</span>
+          </div>
+          <div class="h-64 flex items-center justify-center">
+            <canvas id="whRadarChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- 主管 4 大決策改善行動方案 -->
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+        <h3 class="text-sm font-bold text-slate-900 mb-3 flex items-center space-x-2">
+          <i class="fa-solid fa-list-check text-blue-600"></i>
+          <span>呈報主管之四大營運優化落地方案 (Action Plan)</span>
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+          <div class="p-3 bg-red-50 rounded-lg border border-red-200">
+            <span class="font-bold text-red-900 block mb-1 text-sm">1. SDHN K27 車型升級</span>
+            <p class="text-slate-600 leading-relaxed">
+              K27 積載率達 <strong>146.5%</strong>，超載出車日佔 84%。8.5 噸車已完全無法承載，強烈建議立即升級為 <strong>13.9 噸車型</strong>，消除超載違規風險。
+            </p>
+          </div>
+          <div class="p-3 bg-amber-50 rounded-lg border border-amber-200">
+            <span class="font-bold text-amber-900 block mb-1 text-sm">2. SDHN 日配整併降本</span>
+            <p class="text-slate-600 leading-relaxed">
+              SDHN 日配組平均積載率僅 55.0%，尤以 K4（37.2%）、K1（44.6%）嚴重過剩。建議整併班次或改派 5~8.5 噸輕車，每月可節省 2~3 台大車固定租賃成本。
+            </p>
+          </div>
+          <div class="p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <span class="font-bold text-blue-900 block mb-1 text-sm">3. 夜配重點據點分流</span>
+            <p class="text-slate-600 leading-relaxed">
+              K22（117.6%）、K26（107.1%）常態超載，據點分析顯示前 2 大據點吃掉 50% 容積。建議將重點據點拆分調整至鄰近較寬鬆之 K24、K29 路線。
+            </p>
+          </div>
+          <div class="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+            <span class="font-bold text-emerald-900 block mb-1 text-sm">4. 系統防呆門檻建立</span>
+            <p class="text-slate-600 leading-relaxed">
+              本期剔除之 12 筆異常暴衝多為回倉重複累加或登記錯誤。建議於 TMS 系統端增設單車載重上限警示（8.5t&gt;20t / 13.9t&gt;34t），即時攔截異常。
+            </p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ==================== TAB 2: 36條路線與據點穿透總表 ==================== -->
+    <div id="view-drilldown" class="hidden space-y-4">
+      
+      <!-- 工具篩選列 -->
+      <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm flex flex-wrap gap-3 items-center justify-between text-xs">
+        <div class="flex flex-wrap items-center gap-2.5">
+          <span class="font-semibold text-slate-600">快速篩選：</span>
+          <select id="filterGroup" onchange="filterRoutes()" class="bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500">
+            <option value="ALL">全部組別 (SDTC 日/夜 + SDHN 日/夜)</option>
+            <option value="SDTC_日">1. SDTC (台中倉) 日配組 (9條)</option>
+            <option value="SDTC_夜">2. SDTC (台中倉) 夜配組 (9條)</option>
+            <option value="SDHN_日">3. SDHN (高雄倉) 日配組 (8條)</option>
+            <option value="SDHN_夜">4. SDHN (高雄倉) 夜配組 (10條)</option>
+          </select>
+
+          <select id="filterStatus" onchange="filterRoutes()" class="bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500">
+            <option value="ALL">全部狀態</option>
+            <option value="OVERLOAD">超載路線 (&gt;= 100%)</option>
+            <option value="NORMAL">穩健路線 (60% ~ 100%)</option>
+            <option value="UNDER">過剩路線 (&lt; 60%)</option>
+          </select>
+
+          <!-- 常態據點過濾開關 -->
+          <select id="filterRegularOnly" onchange="filterRoutes()" class="bg-blue-50 border border-blue-300 text-blue-900 font-semibold rounded px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500">
+            <option value="YES">📍 僅顯示核定常態據點 (精簡呈現)</option>
+            <option value="NO">📋 顯示全部據點 (含零星彙總)</option>
+          </select>
+
+          <div class="relative">
+            <input type="text" id="routeSearch" oninput="filterRoutes()" placeholder="搜尋路線或據點代號..." class="bg-slate-50 border border-slate-300 rounded pl-7 pr-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 w-44 focus:w-56 transition-all">
+            <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-slate-400"></i>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <button onclick="toggleAllDrill(true)" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-medium transition">
+            <i class="fa-solid fa-folder-open mr-1"></i>展開所有據點
+          </button>
+          <button onclick="toggleAllDrill(false)" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-medium transition">
+            <i class="fa-solid fa-folder-closed mr-1"></i>收合所有據點
+          </button>
+        </div>
+      </div>
+
+      <!-- 樹狀階層總表 -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="bg-slate-900 text-white uppercase text-[11px] tracking-wider">
+                <th class="py-3 px-3 text-center w-12">穿透</th>
+                <th class="py-3 px-3 text-center">倉庫</th>
+                <th class="py-3 px-3 text-center">時段組別</th>
+                <th class="py-3 px-4">路線名稱 / 據點代號</th>
+                <th class="py-3 px-3 text-center">標準容積</th>
+                <th class="py-3 px-3 text-right">出車天數</th>
+                <th class="py-3 px-4 text-right">總運載量 (噸)</th>
+                <th class="py-3 px-4 text-right">總容積空間 (噸)</th>
+                <th class="py-3 px-4 text-right">平均積載率</th>
+                <th class="py-3 px-3 text-right">超載出車比率</th>
+                <th class="py-3 px-4 text-left">營運狀態診斷</th>
+              </tr>
+            </thead>
+            <tbody id="drillTableBody" class="divide-y divide-slate-200">
+              <!-- 動態渲染 -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ==================== TAB 3: 倉別月度趨勢表 ==================== -->
+    <div id="view-trends" class="hidden space-y-4">
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
+        <div>
+          <h2 class="text-sm font-bold text-slate-800">倉庫日夜配月度趨勢表 (5月~10月全量營運)</h2>
+          <p class="text-xs text-slate-500 mt-0.5">每月份均依「SDTC 日 ➔ SDTC 夜 ➔ SDHN 日 ➔ SDHN 夜 ➔ 當月兩倉小計」排列，表頭置頂全期合計。</p>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="bg-slate-900 text-white uppercase text-[11px] tracking-wider">
+                <th class="py-3 px-4 text-center">月份</th>
+                <th class="py-3 px-3 text-center">倉庫</th>
+                <th class="py-3 px-3 text-center">時段組別</th>
+                <th class="py-3 px-4 text-right">出車班次</th>
+                <th class="py-3 px-4 text-right">總運載量 (噸)</th>
+                <th class="py-3 px-4 text-right">總容積空間 (噸)</th>
+                <th class="py-3 px-4 text-right">平均積載率</th>
+                <th class="py-3 px-4 text-right">單日超載班次</th>
+                <th class="py-3 px-4 text-right">超載班次比例</th>
+              </tr>
+            </thead>
+            <tbody id="trendsTableBody" class="divide-y divide-slate-200">
+              <!-- 動態渲染 -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TAB 4: 異常離群值查核 ==================== -->
+    <div id="view-outliers" class="hidden space-y-4">
+      <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
+        <div>
+          <h2 class="text-sm font-bold text-slate-800">異常離群值排除備查清單 (全數 12 筆出車班次)</h2>
+          <p class="text-xs text-slate-500 mt-0.5">門檻標準：8.5 噸車當日總量 &gt; 20 噸 (約&gt;235%)，13.9 噸車當日總量 &gt; 34 噸 (約&gt;245%)。</p>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="bg-slate-900 text-white uppercase text-[11px] tracking-wider">
+                <th class="py-3 px-3 text-center">序號</th>
+                <th class="py-3 px-4 text-center">出車日期</th>
+                <th class="py-3 px-3 text-center">倉庫</th>
+                <th class="py-3 px-3 text-center">時段組別</th>
+                <th class="py-3 px-3 text-center">路線</th>
+                <th class="py-3 px-3 text-center">車型容積基準</th>
+                <th class="py-3 px-4 text-right">當日總積載量 (噸)</th>
+                <th class="py-3 px-4 text-right">當日積載率</th>
+                <th class="py-3 px-6 text-left">判定門檻與排除依據</th>
+              </tr>
+            </thead>
+            <tbody id="outliersTableBody" class="divide-y divide-slate-200">
+              <!-- 動態渲染 -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- 頁腳版權 -->
+  <footer class="bg-white border-t border-slate-200 py-3 text-center text-xs text-slate-400">
+    副倉庫配送車積載率管理系統 &copy; 2026. 數據運算符合三層嚴密勾稽 (倉庫 ➔ 路線 ➔ 據點)。
+  </footer>
+
+  <!-- 內嵌全量計算資料庫與引擎 -->
+  <script>
+    // 依據官方 2026「仁武副倉 (SDHN 高雄倉)」與「台中副倉 (SDTC)」核定路線圖建立之常態配送據點對應字典
+    const OFFICIAL_REGULAR_LOCATIONS = {
+      // 1. SDTC 日間配送 9 條路線常態據點
+      "SDTC_日": {
+        "A": ["D747", "D713", "D711", "D721", "HTBS", "D723"],
+        "B": ["D702", "D751", "D756", "D74C", "D701", "D729", "D754", "D745", "D74H"],
+        "C": ["J714", "J764", "D719", "D708", "D705", "D716"],
+        "D": ["D718", "D706", "R76B", "D752", "D732", "J707", "J757", "D704", "D743", "D74J"],
+        "E": ["D753", "D703", "D74L", "D741", "D710"],
+        "F": ["D748", "D720", "D74A", "D707", "C711", "D725"],
+        "G": ["E710", "E754", "E703", "J715", "J765", "M707", "M757", "E720", "E724", "E707", "E74A", "E716"],
+        "H": ["R76K", "D74K", "D714", "D709", "D744", "D728", "D712", "D730"],
+        "K": ["D722", "D74B", "D724", "D731", "D742", "R76F", "D74D"]
+      },
+      // 2. SDTC 夜間配送 9 條路線常態據點
+      "SDTC_夜": {
+        "A": ["D74G", "D746", "D713", "D711", "D723", "D721"],
+        "B": ["D702", "D751", "D701", "D729", "D754", "D74F"],
+        "C": ["J714", "J764", "D719", "D708", "D705", "D716"],
+        "D": ["D718", "D706", "R76B", "D752", "D732", "J707", "J757", "D704"],
+        "E": ["D74M", "D753", "D703", "D710", "D749"],
+        "F": ["D720", "D707", "C711", "D74E", "D725"],
+        "G": ["E746", "E710", "E754", "E703", "J715", "J765", "M707", "M757", "E720", "E724", "E707", "E716"],
+        "H": ["D714", "D709", "D728", "D712", "D730"],
+        "K": ["D722", "D724", "D731"]
+      },
+      // 3. SDHN (仁武副倉) 日間配送 8 條路線常態據點
+      "SDHN_日": {
+        "K1": ["E702", "E752", "J709", "J759", "E741", "E709", "E719", "E723", "E74H", "E713"],
+        "K2": ["F716", "R76J", "E718", "E742", "E708", "E705", "E715", "E74F", "E74E"],
+        "K3": ["E785", "E751", "E701", "E722", "E743", "E721", "E706", "E741", "E74G"],
+        "K4": ["R76D", "E704", "E749", "E711", "E74C", "E712", "J710", "J760", "M708", "E74D"],
+        "K5": ["F712", "F728", "F722", "R76P", "F708", "F704", "F754", "J712", "J762", "F721"],
+        "K6": ["R76M", "F710", "J713", "J763", "R76A", "F744", "F720", "F709", "F719", "F714"],
+        "K7": ["F741", "F753", "F751", "F711", "F755", "F74G", "F727", "F717", "F745"],
+        "K8": ["F729", "F752", "F798", "F701", "F74F", "F718", "F743", "F703", "F730", "F742", "F713"]
+      },
+      // 4. SDHN (仁武副倉) 夜間配送 10 條路線常態據點
+      "SDHN_夜": {
+        "K21": ["E719", "E723", "E702", "E709", "J709", "J759", "E713", "E74B", "E745"],
+        "K22": ["F703", "F730", "F713", "E718", "E708", "E715", "E705"],
+        "K23": ["E751", "E722", "E721", "E706", "E744"],
+        "K24": ["E704", "E751", "E747", "J710", "J760", "M708", "E748", "E712", "E711"],
+        "K25": ["F746", "F709", "F720", "F74H", "F714", "F719", "F74D", "F721", "F708", "F74C"],
+        "K26": ["F752", "F798", "F704", "J712", "J762", "F754", "J713", "J763", "F710", "F74B", "F74K", "F749"],
+        "K27": ["F751", "F711", "F753", "F717", "F755", "F722"],
+        "K28": ["F716", "F74E", "F718", "F74A", "F729", "F701"],
+        "K29": ["F712", "F728", "F727", "F747", "F724"],
+        "K30": ["E711", "E712", "E709", "R76H"]
+      }
+    };
+
+    // 格式化路線所屬據點：將「核定常態據點」與「其他零星/臨時據點」分離並勾稽
+    function processRouteLocations(gKey, rCode, locs) {
+      const regList = (OFFICIAL_REGULAR_LOCATIONS[gKey] && OFFICIAL_REGULAR_LOCATIONS[gKey][rCode]) || [];
+      const regSet = new Set(regList);
+
+      const regularLocs = [];
+      let otherVol = 0;
+      let otherRate = 0;
+      let otherCount = 0;
+
+      (locs || []).forEach(l => {
+        if (regSet.has(l.code)) {
+          regularLocs.push({
+            ...l,
+            isRegular: true
+          });
+        } else {
+          otherVol += l.vol;
+          otherRate += l.rate;
+          otherCount += 1;
+        }
+      });
+
+      // 依核定常態順序或貨量大小呈現
+      regularLocs.sort((a, b) => b.vol - a.vol);
+
+      const result = [...regularLocs];
+      if (otherCount > 0) {
+        const totalVol = regularLocs.reduce((s, x) => s + x.vol, 0) + otherVol;
+        result.push({
+          code: `其他零星/臨時據點 (${otherCount}站)`,
+          vol: otherVol,
+          share: totalVol > 0 ? (otherVol / totalVol) * 100 : 0,
+          rate: otherRate,
+          isRegular: false
+        });
+      }
+
+      return {
+        all: result,
+        regularOnly: regularLocs,
+        hasOther: otherCount > 0
+      };
+    }
+
+    // 全量預設資料庫結構
+    let currentData = {
+      summary: {
+        trips: 5207,
+        volume: 54397.35,
+        capacity: 69293.90,
+        rate: 78.50,
+        overloadTrips: 1198,
+        overloadRate: 23.01,
+        outlierCount: 12
+      },
+      hierarchy: [
+        {
+          key: "SDTC_日",
+          warehouse: "SDTC",
+          shift: "日配",
+          trips: 1304,
+          volume: 13057.36,
+          capacity: 17342.60,
+          rate: 75.29,
+          overloadTrips: 215,
+          overloadRate: 16.49,
+          routes: [
+            { route: "A", cap: 8.5, days: 145, vol: 806.49, totCap: 1232.5, rate: 65.44, ovDays: 11, ovRate: 7.59,
+              locs: [
+                { code: "D713", vol: 268.64, share: 33.31, rate: 21.80 },
+                { code: "D711", vol: 210.51, share: 26.10, rate: 17.08 },
+                { code: "D721", vol: 191.85, share: 23.79, rate: 15.57 },
+                { code: "D723", vol: 64.61, share: 8.01, rate: 5.24 },
+                { code: "D747", vol: 51.67, share: 6.41, rate: 4.19 },
+                { code: "D74G", vol: 5.75, share: 0.71, rate: 0.47 },
+                { code: "D746", vol: 5.01, share: 0.62, rate: 0.41 },
+                { code: "R720", vol: 2.76, share: 0.34, rate: 0.22 },
+                { code: "R79Z", vol: 2.52, share: 0.31, rate: 0.20 },
+                { code: "R79C", vol: 2.09, share: 0.26, rate: 0.17 },
+                { code: "HTBS", vol: 0.56, share: 0.07, rate: 0.05 },
+                { code: "HD01", vol: 0.31, share: 0.04, rate: 0.03 },
+                { code: "HTBM", vol: 0.20, share: 0.03, rate: 0.02 }
+              ]
+            },
+            { route: "B", cap: 13.9, days: 145, vol: 1561.09, totCap: 2015.5, rate: 77.45, ovDays: 13, ovRate: 8.97,
+              locs: [
+                { code: "D751", vol: 332.43, share: 21.29, rate: 16.49 },
+                { code: "D754", vol: 301.75, share: 19.33, rate: 14.97 },
+                { code: "D701", vol: 253.32, share: 16.23, rate: 12.57 },
+                { code: "D702", vol: 207.89, share: 13.32, rate: 10.31 },
+                { code: "D729", vol: 204.82, share: 13.12, rate: 10.16 },
+                { code: "D74H", vol: 79.18, share: 5.07, rate: 3.93 },
+                { code: "D745", vol: 71.90, share: 4.61, rate: 3.57 },
+                { code: "D74C", vol: 67.11, share: 4.30, rate: 3.33 },
+                { code: "D756", vol: 19.64, share: 1.26, rate: 0.97 },
+                { code: "D74F", vol: 11.12, share: 0.71, rate: 0.55 },
+                { code: "R7F5", vol: 8.03, share: 0.51, rate: 0.40 },
+                { code: "D717", vol: 2.35, share: 0.15, rate: 0.12 },
+                { code: "R702", vol: 1.38, share: 0.09, rate: 0.07 },
+                { code: "R79V", vol: 0.19, share: 0.01, rate: 0.01 }
+              ]
+            },
+            { route: "C", cap: 13.9, days: 145, vol: 1179.39, totCap: 2015.5, rate: 58.52, ovDays: 4, ovRate: 2.76,
+              locs: [
+                { code: "D719", vol: 355.08, share: 30.11, rate: 17.62 },
+                { code: "D705", vol: 300.62, share: 25.49, rate: 14.92 },
+                { code: "D708", vol: 227.83, share: 19.32, rate: 11.30 },
+                { code: "D716", vol: 207.75, share: 17.62, rate: 10.31 },
+                { code: "J714", vol: 87.61, share: 7.43, rate: 4.35 },
+                { code: "J764", vol: 0.41, share: 0.04, rate: 0.02 },
+                { code: "R7A1", vol: 0.08, share: 0.01, rate: 0.00 }
+              ]
+            },
+            { route: "D", cap: 13.9, days: 145, vol: 2155.70, totCap: 2015.5, rate: 106.96, ovDays: 79, ovRate: 54.48,
+              locs: [
+                { code: "R76B", vol: 376.25, share: 17.45, rate: 18.67 },
+                { code: "D706", vol: 368.34, share: 17.09, rate: 18.28 },
+                { code: "D732", vol: 302.28, share: 14.02, rate: 15.00 },
+                { code: "D718", vol: 293.56, share: 13.62, rate: 14.57 },
+                { code: "D704", vol: 277.33, share: 12.86, rate: 13.76 },
+                { code: "D752", vol: 262.99, share: 12.20, rate: 13.05 },
+                { code: "J707", vol: 75.85, share: 3.52, rate: 3.76 },
+                { code: "D743", vol: 68.19, share: 3.16, rate: 3.38 },
+                { code: "D74J", vol: 64.95, share: 3.01, rate: 3.22 },
+                { code: "R7G9", vol: 60.78, share: 2.82, rate: 3.02 },
+                { code: "R70X", vol: 2.74, share: 0.13, rate: 0.14 },
+                { code: "R705", vol: 1.14, share: 0.05, rate: 0.06 },
+                { code: "R7G7", vol: 0.53, share: 0.02, rate: 0.03 },
+                { code: "J757", vol: 0.37, share: 0.02, rate: 0.02 },
+                { code: "R7D5", vol: 0.25, share: 0.01, rate: 0.01 },
+                { code: "R73U", vol: 0.10, share: 0.00, rate: 0.00 },
+                { code: "R79L", vol: 0.05, share: 0.00, rate: 0.00 }
+              ]
+            },
+            { route: "E", cap: 13.9, days: 145, vol: 1715.68, totCap: 2015.5, rate: 85.12, ovDays: 34, ovRate: 23.45,
+              locs: [
+                { code: "D703", vol: 636.34, share: 37.09, rate: 31.57 },
+                { code: "D710", vol: 341.22, share: 19.89, rate: 16.93 },
+                { code: "D753", vol: 287.00, share: 16.73, rate: 14.24 },
+                { code: "R76S", vol: 187.81, share: 10.95, rate: 9.32 },
+                { code: "D741", vol: 75.04, share: 4.37, rate: 3.72 },
+                { code: "D749", vol: 71.98, share: 4.20, rate: 3.57 },
+                { code: "R7E4", vol: 55.45, share: 3.23, rate: 2.75 },
+                { code: "D74L", vol: 49.33, share: 2.88, rate: 2.45 },
+                { code: "D74M", vol: 10.56, share: 0.62, rate: 0.52 },
+                { code: "R74W", vol: 0.94, share: 0.05, rate: 0.05 },
+                { code: "R7C8", vol: 0.01, share: 0.00, rate: 0.00 }
+              ]
+            },
+            { route: "F", cap: 13.9, days: 145, vol: 1271.60, totCap: 2015.5, rate: 63.09, ovDays: 8, ovRate: 5.52,
+              locs: [
+                { code: "D720", vol: 492.38, share: 38.72, rate: 24.43 },
+                { code: "C711", vol: 232.24, share: 18.26, rate: 11.52 },
+                { code: "D707", vol: 225.99, share: 17.77, rate: 11.21 },
+                { code: "D725", vol: 143.31, share: 11.27, rate: 7.11 },
+                { code: "D74A", vol: 90.81, share: 7.14, rate: 4.51 },
+                { code: "D748", vol: 65.11, share: 5.12, rate: 3.23 },
+                { code: "R7C7", vol: 13.51, share: 1.06, rate: 0.67 },
+                { code: "D74E", vol: 7.51, share: 0.59, rate: 0.37 },
+                { code: "R71Y", vol: 0.44, share: 0.03, rate: 0.02 },
+                { code: "R72A", vol: 0.31, share: 0.02, rate: 0.02 }
+              ]
+            },
+            { route: "G", cap: 13.9, days: 144, vol: 1528.19, totCap: 2001.6, rate: 76.35, ovDays: 29, ovRate: 20.14,
+              locs: [
+                { code: "E710", vol: 371.21, share: 24.29, rate: 18.55 },
+                { code: "E724", vol: 354.43, share: 23.19, rate: 17.71 },
+                { code: "E703", vol: 258.77, share: 16.93, rate: 12.93 },
+                { code: "E707", vol: 141.26, share: 9.24, rate: 7.06 },
+                { code: "E720", vol: 126.33, share: 8.27, rate: 6.31 },
+                { code: "E754", vol: 79.15, share: 5.18, rate: 3.95 },
+                { code: "E716", vol: 68.83, share: 4.50, rate: 3.44 },
+                { code: "J715", vol: 66.51, share: 4.35, rate: 3.32 },
+                { code: "E74A", vol: 52.44, share: 3.43, rate: 2.62 },
+                { code: "R79K", vol: 5.74, share: 0.38, rate: 0.29 },
+                { code: "E746", vol: 2.89, share: 0.19, rate: 0.14 },
+                { code: "R7E8", vol: 0.56, share: 0.04, rate: 0.03 },
+                { code: "M707", vol: 0.08, share: 0.01, rate: 0.00 }
+              ]
+            },
+            { route: "H", cap: 13.9, days: 145, vol: 1297.13, totCap: 2015.5, rate: 64.36, ovDays: 12, ovRate: 8.28,
+              locs: [
+                { code: "D728", vol: 659.73, share: 50.86, rate: 32.73 },
+                { code: "D714", vol: 159.41, share: 12.29, rate: 7.91 },
+                { code: "D730", vol: 146.17, share: 11.27, rate: 7.25 },
+                { code: "D709", vol: 92.75, share: 7.15, rate: 4.60 },
+                { code: "D712", vol: 86.69, share: 6.68, rate: 4.30 },
+                { code: "D744", vol: 54.10, share: 4.17, rate: 2.68 },
+                { code: "D74K", vol: 42.37, share: 3.27, rate: 2.10 },
+                { code: "R7F9", vol: 29.96, share: 2.31, rate: 1.49 },
+                { code: "R76K", vol: 25.95, share: 2.00, rate: 1.29 }
+              ]
+            },
+            { route: "K", cap: 13.9, days: 145, vol: 1542.08, totCap: 2015.5, rate: 76.51, ovDays: 25, ovRate: 17.24,
+              locs: [
+                { code: "D722", vol: 645.86, share: 41.88, rate: 32.04 },
+                { code: "D731", vol: 528.45, share: 34.27, rate: 26.22 },
+                { code: "D724", vol: 122.33, share: 7.93, rate: 6.07 },
+                { code: "R76F", vol: 80.46, share: 5.22, rate: 3.99 },
+                { code: "D74B", vol: 63.12, share: 4.09, rate: 3.13 },
+                { code: "D74D", vol: 56.87, share: 3.69, rate: 2.82 },
+                { code: "D742", vol: 44.99, share: 2.92, rate: 2.23 }
+              ]
+            }
+          ]
+        },
+        {
+          key: "SDTC_夜",
+          warehouse: "SDTC",
+          shift: "夜配",
+          trips: 1303,
+          volume: 13862.57,
+          capacity: 17334.10,
+          rate: 79.97,
+          overloadTrips: 282,
+          overloadRate: 21.64,
+          routes: [
+            { route: "A", cap: 8.5, days: 144, vol: 1020.30, totCap: 1224.0, rate: 83.36, ovDays: 31, ovRate: 21.53,
+              locs: [
+                { code: "D721", vol: 304.15, share: 29.81, rate: 24.85 },
+                { code: "D713", vol: 297.74, share: 29.18, rate: 24.33 },
+                { code: "D711", vol: 238.11, share: 23.34, rate: 19.45 },
+                { code: "D723", vol: 63.19, share: 6.19, rate: 5.16 },
+                { code: "D74G", vol: 61.16, share: 5.99, rate: 5.00 },
+                { code: "D746", vol: 55.54, share: 5.44, rate: 4.54 },
+                { code: "HTBS", vol: 0.39, share: 0.04, rate: 0.03 },
+                { code: "HTBM", vol: 0.02, share: 0.00, rate: 0.00 }
+              ]
+            },
+            { route: "B", cap: 13.9, days: 144, vol: 1615.41, totCap: 2001.6, rate: 80.71, ovDays: 22, ovRate: 15.28,
+              locs: [
+                { code: "D754", vol: 496.22, share: 30.72, rate: 24.79 },
+                { code: "D702", vol: 271.26, share: 16.79, rate: 13.55 },
+                { code: "D701", vol: 270.24, share: 16.73, rate: 13.50 },
+                { code: "D729", vol: 261.42, share: 16.18, rate: 13.06 },
+                { code: "D751", vol: 258.41, share: 16.00, rate: 12.91 },
+                { code: "D74F", vol: 50.08, share: 3.10, rate: 2.50 },
+                { code: "D717", vol: 3.84, share: 0.24, rate: 0.19 },
+                { code: "D756", vol: 2.60, share: 0.16, rate: 0.13 },
+                { code: "D74H", vol: 1.35, share: 0.08, rate: 0.07 }
+              ]
+            },
+            { route: "C", cap: 13.9, days: 145, vol: 1249.50, totCap: 2015.5, rate: 61.99, ovDays: 6, ovRate: 4.14,
+              locs: [
+                { code: "D719", vol: 463.95, share: 37.13, rate: 23.02 },
+                { code: "D705", vol: 360.73, share: 28.87, rate: 17.90 },
+                { code: "D716", vol: 198.93, share: 15.92, rate: 9.87 },
+                { code: "D708", vol: 151.84, share: 12.15, rate: 7.53 },
+                { code: "J714", vol: 73.05, share: 5.85, rate: 3.62 },
+                { code: "J764", vol: 1.00, share: 0.08, rate: 0.05 }
+              ]
+            },
+            { route: "D", cap: 13.9, days: 145, vol: 1764.40, totCap: 2015.5, rate: 87.54, ovDays: 37, ovRate: 25.52,
+              locs: [
+                { code: "D706", vol: 403.01, share: 22.84, rate: 20.00 },
+                { code: "D704", vol: 341.37, share: 19.35, rate: 16.94 },
+                { code: "D718", vol: 306.11, share: 17.35, rate: 15.19 },
+                { code: "D752", vol: 295.27, share: 16.73, rate: 14.65 },
+                { code: "D732", vol: 275.22, share: 15.60, rate: 13.66 },
+                { code: "J707", vol: 140.98, share: 7.99, rate: 6.99 },
+                { code: "J757", vol: 1.26, share: 0.07, rate: 0.06 },
+                { code: "D782", vol: 1.17, share: 0.07, rate: 0.06 }
+              ]
+            },
+            { route: "E", cap: 13.9, days: 145, vol: 1560.89, totCap: 2015.5, rate: 77.44, ovDays: 30, ovRate: 20.69,
+              locs: [
+                { code: "D703", vol: 728.28, share: 46.66, rate: 36.13 },
+                { code: "D710", vol: 399.73, share: 25.61, rate: 19.83 },
+                { code: "D753", vol: 397.74, share: 25.48, rate: 19.73 },
+                { code: "D74M", vol: 34.40, share: 2.20, rate: 1.71 },
+                { code: "D74L", vol: 0.74, share: 0.05, rate: 0.04 }
+              ]
+            },
+            { route: "F", cap: 13.9, days: 145, vol: 1301.42, totCap: 2015.5, rate: 64.57, ovDays: 14, ovRate: 9.66,
+              locs: [
+                { code: "D720", vol: 436.32, share: 33.53, rate: 21.65 },
+                { code: "C711", vol: 376.17, share: 28.90, rate: 18.66 },
+                { code: "D707", vol: 250.75, share: 19.27, rate: 12.44 },
+                { code: "D725", vol: 155.79, share: 11.97, rate: 7.73 },
+                { code: "D74E", vol: 82.40, share: 6.33, rate: 4.09 }
+              ]
+            },
+            { route: "G", cap: 13.9, days: 145, vol: 1877.56, totCap: 2015.5, rate: 93.16, ovDays: 61, ovRate: 42.07,
+              locs: [
+                { code: "E710", vol: 472.45, share: 25.16, rate: 23.44 },
+                { code: "E724", vol: 399.21, share: 21.26, rate: 19.81 },
+                { code: "E703", vol: 340.06, share: 18.11, rate: 16.87 },
+                { code: "E707", vol: 192.96, share: 10.28, rate: 9.57 },
+                { code: "E720", vol: 134.54, share: 7.17, rate: 6.68 },
+                { code: "J715", vol: 110.29, share: 5.87, rate: 5.47 },
+                { code: "E716", vol: 95.43, share: 5.08, rate: 4.73 },
+                { code: "E754", vol: 92.29, share: 4.92, rate: 4.58 },
+                { code: "E746", vol: 39.83, share: 2.12, rate: 1.98 },
+                { code: "M707", vol: 0.52, share: 0.03, rate: 0.03 }
+              ]
+            },
+            { route: "H", cap: 13.9, days: 145, vol: 1407.35, totCap: 2015.5, rate: 69.83, ovDays: 13, ovRate: 8.97,
+              locs: [
+                { code: "D728", vol: 796.42, share: 56.59, rate: 39.51 },
+                { code: "D730", vol: 208.37, share: 14.81, rate: 10.34 },
+                { code: "D714", vol: 172.60, share: 12.26, rate: 8.56 },
+                { code: "D712", vol: 120.44, share: 8.56, rate: 5.98 },
+                { code: "D709", vol: 97.27, share: 6.91, rate: 4.83 },
+                { code: "D74K", vol: 12.25, share: 0.87, rate: 0.61 }
+              ]
+            },
+            { route: "K", cap: 13.9, days: 145, vol: 2065.74, totCap: 2015.5, rate: 102.49, ovDays: 68, ovRate: 46.90,
+              locs: [
+                { code: "D722", vol: 1117.12, share: 54.08, rate: 55.43 },
+                { code: "D731", vol: 754.78, share: 36.54, rate: 37.45 },
+                { code: "D724", vol: 191.44, share: 9.27, rate: 9.50 },
+                { code: "AD01", vol: 1.60, share: 0.08, rate: 0.08 },
+                { code: "AD02", vol: 0.80, share: 0.04, rate: 0.04 }
+              ]
+            }
+          ]
+        },
+        {
+          key: "SDHN_日",
+          warehouse: "SDHN",
+          shift: "日配",
+          trips: 1159,
+          volume: 8423.82,
+          capacity: 15327.10,
+          rate: 54.96,
+          overloadTrips: 49,
+          overloadRate: 4.23,
+          routes: [
+            { route: "K1", cap: 13.9, days: 145, vol: 899.91, totCap: 2015.5, rate: 44.65, ovDays: 2, ovRate: 1.38,
+              locs: [
+                { code: "E723", vol: 173.15, share: 19.24, rate: 8.59 },
+                { code: "E709", vol: 168.74, share: 18.75, rate: 8.37 },
+                { code: "E702", vol: 154.96, share: 17.22, rate: 7.69 },
+                { code: "E713", vol: 122.85, share: 13.65, rate: 6.10 },
+                { code: "E719", vol: 95.34, share: 10.59, rate: 4.73 },
+                { code: "E752", vol: 66.55, share: 7.40, rate: 3.30 },
+                { code: "J709", vol: 32.55, share: 3.62, rate: 1.61 },
+                { code: "E74H", vol: 32.40, share: 3.60, rate: 1.61 },
+                { code: "E74J", vol: 22.37, share: 2.49, rate: 1.11 },
+                { code: "R7D3", vol: 18.82, share: 2.09, rate: 0.93 },
+                { code: "R7F6", vol: 7.01, share: 0.78, rate: 0.35 },
+                { code: "R7C3", vol: 3.63, share: 0.40, rate: 0.18 },
+                { code: "R772", vol: 0.43, share: 0.05, rate: 0.02 },
+                { code: "R74P", vol: 0.38, share: 0.04, rate: 0.02 },
+                { code: "J759", vol: 0.33, share: 0.04, rate: 0.02 },
+                { code: "R73I", vol: 0.32, share: 0.04, rate: 0.02 },
+                { code: "R70Q", vol: 0.11, share: 0.01, rate: 0.01 }
+              ]
+            },
+            { route: "K2", cap: 13.9, days: 145, vol: 1043.96, totCap: 2015.5, rate: 51.80, ovDays: 1, ovRate: 0.69,
+              locs: [
+                { code: "R76J", vol: 310.52, share: 29.74, rate: 15.41 },
+                { code: "E705", vol: 166.64, share: 15.96, rate: 8.27 },
+                { code: "E718", vol: 144.09, share: 13.80, rate: 7.15 },
+                { code: "E708", vol: 134.58, share: 12.89, rate: 6.68 },
+                { code: "F716", vol: 111.92, share: 10.72, rate: 5.55 },
+                { code: "E742", vol: 57.08, share: 5.47, rate: 2.83 },
+                { code: "E715", vol: 50.95, share: 4.88, rate: 2.53 },
+                { code: "E74F", vol: 35.69, share: 3.42, rate: 1.77 },
+                { code: "E74E", vol: 31.07, share: 2.98, rate: 1.54 },
+                { code: "R7H7", vol: 1.41, share: 0.14, rate: 0.07 }
+              ]
+            },
+            { route: "K3", cap: 13.9, days: 144, vol: 1078.00, totCap: 2001.6, rate: 53.86, ovDays: 3, ovRate: 2.08,
+              locs: [
+                { code: "E722", vol: 377.81, share: 35.05, rate: 18.88 },
+                { code: "E721", vol: 150.47, share: 13.96, rate: 7.52 },
+                { code: "E751", vol: 129.09, share: 11.97, rate: 6.45 },
+                { code: "E701", vol: 122.60, share: 11.37, rate: 6.13 },
+                { code: "E706", vol: 119.26, share: 11.06, rate: 5.96 },
+                { code: "E741", vol: 67.58, share: 6.27, rate: 3.38 },
+                { code: "E743", vol: 65.06, share: 6.04, rate: 3.25 },
+                { code: "E74G", vol: 27.31, share: 2.53, rate: 1.36 },
+                { code: "R74Q", vol: 8.30, share: 0.77, rate: 0.41 },
+                { code: "AE01", vol: 6.29, share: 0.58, rate: 0.31 },
+                { code: "R74S", vol: 2.95, share: 0.27, rate: 0.15 },
+                { code: "R71C", vol: 0.58, share: 0.05, rate: 0.03 },
+                { code: "R79M", vol: 0.37, share: 0.03, rate: 0.02 },
+                { code: "HE02", vol: 0.25, share: 0.02, rate: 0.01 },
+                { code: "F785", vol: 0.09, share: 0.01, rate: 0.00 }
+              ]
+            },
+            { route: "K4", cap: 13.9, days: 145, vol: 748.97, totCap: 2015.5, rate: 37.16, ovDays: 0, ovRate: 0.00,
+              locs: [
+                { code: "E704", vol: 253.83, share: 33.89, rate: 12.59 },
+                { code: "E712", vol: 171.48, share: 22.90, rate: 8.51 },
+                { code: "E711", vol: 142.73, share: 19.06, rate: 7.08 },
+                { code: "J710", vol: 50.85, share: 6.79, rate: 2.52 },
+                { code: "E749", vol: 37.15, share: 4.96, rate: 1.84 },
+                { code: "E74D", vol: 35.86, share: 4.79, rate: 1.78 },
+                { code: "R76D", vol: 28.79, share: 3.84, rate: 1.43 },
+                { code: "E74C", vol: 23.70, share: 3.16, rate: 1.18 },
+                { code: "R77R", vol: 1.39, share: 0.19, rate: 0.07 },
+                { code: "R746", vol: 1.17, share: 0.16, rate: 0.06 },
+                { code: "J760", vol: 0.99, share: 0.13, rate: 0.05 },
+                { code: "R75G", vol: 0.64, share: 0.09, rate: 0.03 },
+                { code: "M708", vol: 0.39, share: 0.05, rate: 0.02 }
+              ]
+            },
+            { route: "K5", cap: 13.9, days: 145, vol: 1023.31, totCap: 2015.5, rate: 50.77, ovDays: 3, ovRate: 2.07,
+              locs: [
+                { code: "F728", vol: 268.67, share: 26.26, rate: 13.33 },
+                { code: "F704", vol: 234.44, share: 22.91, rate: 11.63 },
+                { code: "F712", vol: 171.37, share: 16.75, rate: 8.50 },
+                { code: "F722", vol: 120.10, share: 11.74, rate: 5.96 },
+                { code: "F708", vol: 74.40, share: 7.27, rate: 3.69 },
+                { code: "R76P", vol: 59.49, share: 5.81, rate: 2.95 },
+                { code: "F721", vol: 46.74, share: 4.57, rate: 2.32 },
+                { code: "F754", vol: 27.29, share: 2.67, rate: 1.35 },
+                { code: "J712", vol: 18.26, share: 1.78, rate: 0.91 },
+                { code: "R7H3", vol: 2.12, share: 0.21, rate: 0.11 },
+                { code: "J762", vol: 0.43, share: 0.04, rate: 0.02 }
+              ]
+            },
+            { route: "K6", cap: 13.9, days: 145, vol: 1471.60, totCap: 2015.5, rate: 73.01, ovDays: 23, ovRate: 15.86,
+              locs: [
+                { code: "R766", vol: 669.32, share: 45.48, rate: 33.21 },
+                { code: "F709", vol: 181.98, share: 12.37, rate: 9.03 },
+                { code: "F720", vol: 169.66, share: 11.53, rate: 8.42 },
+                { code: "F710", vol: 161.36, share: 10.97, rate: 8.01 },
+                { code: "F714", vol: 77.09, share: 5.24, rate: 3.83 },
+                { code: "F719", vol: 75.84, share: 5.15, rate: 3.76 },
+                { code: "R76M", vol: 56.62, share: 3.85, rate: 2.81 },
+                { code: "F744", vol: 43.04, share: 2.92, rate: 2.14 },
+                { code: "J713", vol: 13.54, share: 0.92, rate: 0.67 },
+                { code: "R76A", vol: 9.40, share: 0.64, rate: 0.47 },
+                { code: "R71L", vol: 7.36, share: 0.50, rate: 0.37 },
+                { code: "R75Y", vol: 4.93, share: 0.33, rate: 0.24 },
+                { code: "R7G4", vol: 1.26, share: 0.09, rate: 0.06 },
+                { code: "R794", vol: 0.10, share: 0.01, rate: 0.01 },
+                { code: "R79P", vol: 0.10, share: 0.01, rate: 0.00 }
+              ]
+            },
+            { route: "K7", cap: 8.5, days: 145, vol: 771.47, totCap: 1232.5, rate: 62.59, ovDays: 4, ovRate: 2.76,
+              locs: [
+                { code: "F711", vol: 278.36, share: 36.08, rate: 22.59 },
+                { code: "F727", vol: 115.22, share: 14.93, rate: 9.35 },
+                { code: "F717", vol: 89.56, share: 11.61, rate: 7.27 },
+                { code: "F741", vol: 71.72, share: 9.30, rate: 5.82 },
+                { code: "F753", vol: 69.59, share: 9.02, rate: 5.65 },
+                { code: "F745", vol: 45.61, share: 5.91, rate: 3.70 },
+                { code: "F751", vol: 43.68, share: 5.66, rate: 3.54 },
+                { code: "F74G", vol: 36.76, share: 4.76, rate: 2.98 },
+                { code: "F755", vol: 19.95, share: 2.59, rate: 1.62 },
+                { code: "HF03", vol: 0.80, share: 0.10, rate: 0.07 },
+                { code: "R707", vol: 0.11, share: 0.01, rate: 0.01 },
+                { code: "R73T", vol: 0.10, share: 0.01, rate: 0.01 }
+              ]
+            },
+            { route: "K8", cap: 13.9, days: 145, vol: 1386.60, totCap: 2015.5, rate: 68.80, ovDays: 13, ovRate: 8.97,
+              locs: [
+                { code: "F701", vol: 647.06, share: 46.67, rate: 32.10 },
+                { code: "F730", vol: 229.41, share: 16.54, rate: 11.38 },
+                { code: "F703", vol: 108.77, share: 7.84, rate: 5.40 },
+                { code: "F752", vol: 102.95, share: 7.42, rate: 5.11 },
+                { code: "F713", vol: 57.99, share: 4.18, rate: 2.88 },
+                { code: "F74F", vol: 52.19, share: 3.76, rate: 2.59 },
+                { code: "F742", vol: 51.79, share: 3.74, rate: 2.57 },
+                { code: "F718", vol: 44.93, share: 3.24, rate: 2.23 },
+                { code: "F743", vol: 43.56, share: 3.14, rate: 2.16 },
+                { code: "F729", vol: 42.08, share: 3.03, rate: 2.09 },
+                { code: "R7D4", vol: 4.60, share: 0.33, rate: 0.23 },
+                { code: "R7F4", vol: 1.28, share: 0.09, rate: 0.06 }
+              ]
+            }
+          ]
+        },
+        {
+          key: "SDHN_夜",
+          warehouse: "SDHN",
+          shift: "夜配",
+          trips: 1441,
+          volume: 19053.59,
+          capacity: 19290.10,
+          rate: 98.77,
+          overloadTrips: 652,
+          overloadRate: 45.25,
+          routes: [
+            { route: "K21", cap: 13.9, days: 145, vol: 2007.89, totCap: 2015.5, rate: 99.62, ovDays: 72, ovRate: 49.66,
+              locs: [
+                { code: "E723", vol: 545.59, share: 27.17, rate: 27.07 },
+                { code: "E702", vol: 432.88, share: 21.56, rate: 21.48 },
+                { code: "E752", vol: 369.25, share: 18.39, rate: 18.32 },
+                { code: "E713", vol: 260.41, share: 12.97, rate: 12.92 },
+                { code: "E719", vol: 200.85, share: 10.00, rate: 9.97 },
+                { code: "J709", vol: 98.88, share: 4.92, rate: 4.91 },
+                { code: "E745", vol: 47.55, share: 2.37, rate: 2.36 },
+                { code: "E74B", vol: 40.34, share: 2.01, rate: 2.00 },
+                { code: "J759", vol: 12.14, share: 0.60, rate: 0.60 }
+              ]
+            },
+            { route: "K22", cap: 13.9, days: 144, vol: 2352.92, totCap: 2001.6, rate: 117.55, ovDays: 99, ovRate: 68.75,
+              locs: [
+                { code: "E705", vol: 549.98, share: 23.37, rate: 27.48 },
+                { code: "F730", vol: 435.51, share: 18.51, rate: 21.76 },
+                { code: "E708", vol: 406.47, share: 17.28, rate: 20.31 },
+                { code: "E718", vol: 400.63, share: 17.03, rate: 20.02 },
+                { code: "F703", vol: 232.57, share: 9.88, rate: 11.62 },
+                { code: "E715", vol: 187.50, share: 7.97, rate: 9.37 },
+                { code: "F713", vol: 140.26, share: 5.96, rate: 7.01 }
+              ]
+            },
+            { route: "K23", cap: 13.9, days: 145, vol: 1994.88, totCap: 2015.5, rate: 98.98, ovDays: 65, ovRate: 44.83,
+              locs: [
+                { code: "E722", vol: 992.39, share: 49.75, rate: 49.24 },
+                { code: "E721", vol: 408.32, share: 20.47, rate: 20.26 },
+                { code: "E701", vol: 277.29, share: 13.90, rate: 13.76 },
+                { code: "E706", vol: 258.92, share: 12.98, rate: 12.85 },
+                { code: "E744", vol: 57.95, share: 2.91, rate: 2.88 }
+              ]
+            },
+            { route: "K24", cap: 13.9, days: 145, vol: 1761.11, totCap: 2015.5, rate: 87.38, ovDays: 37, ovRate: 25.52,
+              locs: [
+                { code: "E751", vol: 838.15, share: 47.59, rate: 41.59 },
+                { code: "E704", vol: 690.80, share: 39.23, rate: 34.27 },
+                { code: "J710", vol: 108.99, share: 6.19, rate: 5.41 },
+                { code: "E747", vol: 58.34, share: 3.31, rate: 2.89 },
+                { code: "E748", vol: 31.29, share: 1.78, rate: 1.55 },
+                { code: "J760", vol: 29.79, share: 1.69, rate: 1.48 },
+                { code: "E755", vol: 3.41, share: 0.19, rate: 0.17 },
+                { code: "M708", vol: 0.35, share: 0.02, rate: 0.02 }
+              ]
+            },
+            { route: "K25", cap: 13.9, days: 145, vol: 1859.66, totCap: 2015.5, rate: 92.27, ovDays: 59, ovRate: 40.69,
+              locs: [
+                { code: "F709", vol: 450.07, share: 24.20, rate: 22.33 },
+                { code: "F720", vol: 323.50, share: 17.40, rate: 16.05 },
+                { code: "F719", vol: 310.16, share: 16.68, rate: 15.39 },
+                { code: "F708", vol: 268.85, share: 14.46, rate: 13.34 },
+                { code: "F714", vol: 226.96, share: 12.20, rate: 11.26 },
+                { code: "F721", vol: 140.30, share: 7.54, rate: 6.96 },
+                { code: "F74D", vol: 48.95, share: 2.63, rate: 2.43 },
+                { code: "F74C", vol: 35.61, share: 1.92, rate: 1.77 },
+                { code: "F746", vol: 32.79, share: 1.76, rate: 1.63 },
+                { code: "F74H", vol: 22.45, share: 1.21, rate: 1.11 }
+              ]
+            },
+            { route: "K26", cap: 13.9, days: 145, vol: 2159.48, totCap: 2015.5, rate: 107.14, ovDays: 78, ovRate: 53.79,
+              locs: [
+                { code: "F752", vol: 720.82, share: 33.38, rate: 35.76 },
+                { code: "F710", vol: 488.34, share: 22.61, rate: 24.23 },
+                { code: "F704", vol: 485.05, share: 22.46, rate: 24.07 },
+                { code: "F754", vol: 189.68, share: 8.78, rate: 9.41 },
+                { code: "J713", vol: 91.79, share: 4.25, rate: 4.55 },
+                { code: "J712", vol: 70.07, share: 3.24, rate: 3.48 },
+                { code: "F74B", vol: 42.84, share: 1.98, rate: 2.13 },
+                { code: "F74K", vol: 35.15, share: 1.63, rate: 1.74 },
+                { code: "F749", vol: 31.19, share: 1.44, rate: 1.55 },
+                { code: "J762", vol: 4.54, share: 0.21, rate: 0.23 }
+              ]
+            },
+            { route: "K27", cap: 8.5, days: 137, vol: 1705.67, totCap: 1164.5, rate: 146.47, ovDays: 115, ovRate: 83.94,
+              locs: [
+                { code: "F711", vol: 438.58, share: 25.71, rate: 37.66 },
+                { code: "F753", vol: 379.43, share: 22.25, rate: 32.58 },
+                { code: "F751", vol: 294.41, share: 17.26, rate: 25.28 },
+                { code: "F722", vol: 239.08, share: 14.02, rate: 20.53 },
+                { code: "F717", vol: 223.01, share: 13.07, rate: 19.15 },
+                { code: "F755", vol: 101.46, share: 5.95, rate: 8.71 },
+                { code: "F748", vol: 29.69, share: 1.74, rate: 2.55 }
+              ]
+            },
+            { route: "K28", cap: 13.9, days: 145, vol: 2041.17, totCap: 2015.5, rate: 101.27, ovDays: 74, ovRate: 51.03,
+              locs: [
+                { code: "F701", vol: 1372.60, share: 67.25, rate: 68.10 },
+                { code: "F716", vol: 409.14, share: 20.04, rate: 20.30 },
+                { code: "F729", vol: 93.59, share: 4.58, rate: 4.64 },
+                { code: "F718", vol: 74.88, share: 3.67, rate: 3.72 },
+                { code: "F74E", vol: 61.83, share: 3.03, rate: 3.07 },
+                { code: "F74A", vol: 29.14, share: 1.43, rate: 1.45 }
+              ]
+            },
+            { route: "K29", cap: 13.9, days: 145, vol: 1604.26, totCap: 2015.5, rate: 79.60, ovDays: 32, ovRate: 22.07,
+              locs: [
+                { code: "F728", vol: 926.95, share: 57.78, rate: 45.99 },
+                { code: "F727", vol: 270.93, share: 16.89, rate: 13.44 },
+                { code: "F712", vol: 265.60, share: 16.56, rate: 13.18 },
+                { code: "F724", vol: 79.02, share: 4.93, rate: 3.92 },
+                { code: "F747", vol: 61.76, share: 3.85, rate: 3.06 }
+              ]
+            },
+            { route: "K30", cap: 13.9, days: 145, vol: 1566.56, totCap: 2015.5, rate: 77.73, ovDays: 21, ovRate: 14.48,
+              locs: [
+                { code: "E712", vol: 469.39, share: 29.96, rate: 23.29 },
+                { code: "E709", vol: 461.76, share: 29.48, rate: 22.91 },
+                { code: "E711", vol: 401.83, share: 25.65, rate: 19.94 },
+                { code: "R76H", vol: 233.58, share: 14.91, rate: 11.59 }
+              ]
+            }
+          ]
+        }
+      ],
+      // 月度趨勢記錄 (包含全期合計置頂)
+      trends: [
+        { month: "5~10月全期合計", wh: "SDTC", shift: "日配", trips: 1304, vol: 13057.36, cap: 17342.6, rate: 75.29, ovTrips: 215, ovRate: 16.49, isSub: true },
+        { month: "5~10月全期合計", wh: "SDTC", shift: "夜配", trips: 1303, vol: 13862.57, cap: 17334.1, rate: 79.97, ovTrips: 282, ovRate: 21.64, isSub: true },
+        { month: "5~10月全期合計", wh: "SDHN", shift: "日配", trips: 1159, vol: 8423.82, cap: 15327.1, rate: 54.96, ovTrips: 49, ovRate: 4.23, isSub: true },
+        { month: "5~10月全期合計", wh: "SDHN", shift: "夜配", trips: 1441, vol: 19053.59, cap: 19290.1, rate: 98.77, ovTrips: 652, ovRate: 45.25, isSub: true },
+        { month: "5~10月全期總計", wh: "兩倉合計", shift: "全時段", trips: 5207, vol: 54397.35, cap: 69293.9, rate: 78.50, ovTrips: 1198, ovRate: 23.01, isGrand: true },
+        // 5月
+        { month: "5月", wh: "SDTC", shift: "日配", trips: 225, vol: 1999.02, cap: 2992.5, rate: 66.80, ovTrips: 19, ovRate: 8.44 },
+        { month: "5月", wh: "SDTC", shift: "夜配", trips: 225, vol: 2255.89, cap: 2992.5, rate: 75.38, ovTrips: 41, ovRate: 18.22 },
+        { month: "5月", wh: "SDHN", shift: "日配", trips: 200, vol: 1332.15, cap: 2645.0, rate: 50.37, ovTrips: 0, ovRate: 0.00 },
+        { month: "5月", wh: "SDHN", shift: "夜配", trips: 249, vol: 3120.60, cap: 3331.5, rate: 93.67, ovTrips: 99, ovRate: 39.76 },
+        { month: "5月小計", wh: "兩倉合計", shift: "全時段", trips: 899, vol: 8707.66, cap: 11961.5, rate: 72.80, ovTrips: 159, ovRate: 17.69, isSub: true },
+        // 6月
+        { month: "6月", wh: "SDTC", shift: "日配", trips: 216, vol: 2226.52, cap: 2872.8, rate: 77.50, ovTrips: 36, ovRate: 16.67 },
+        { month: "6月", wh: "SDTC", shift: "夜配", trips: 215, vol: 2326.52, cap: 2858.9, rate: 81.38, ovTrips: 51, ovRate: 23.72 },
+        { month: "6月", wh: "SDHN", shift: "日配", trips: 191, vol: 1489.95, cap: 2525.3, rate: 59.00, ovTrips: 13, ovRate: 6.81 },
+        { month: "6月", wh: "SDHN", shift: "夜配", trips: 240, vol: 3164.95, cap: 3206.4, rate: 98.71, ovTrips: 112, ovRate: 46.67 },
+        { month: "6月小計", wh: "兩倉合計", shift: "全時段", trips: 862, vol: 9207.94, cap: 11463.4, rate: 80.32, ovTrips: 212, ovRate: 24.59, isSub: true },
+        // 7月
+        { month: "7月", wh: "SDTC", shift: "日配", trips: 225, vol: 2364.34, cap: 2992.5, rate: 79.01, ovTrips: 43, ovRate: 19.11 },
+        { month: "7月", wh: "SDTC", shift: "夜配", trips: 225, vol: 2495.71, cap: 2992.5, rate: 83.40, ovTrips: 58, ovRate: 25.78 },
+        { month: "7月", wh: "SDHN", shift: "日配", trips: 200, vol: 1393.63, cap: 2645.0, rate: 52.69, ovTrips: 5, ovRate: 2.50 },
+        { month: "7月", wh: "SDHN", shift: "夜配", trips: 247, vol: 3436.28, cap: 3309.1, rate: 103.84, ovTrips: 121, ovRate: 48.99 },
+        { month: "7月小計", wh: "兩倉合計", shift: "全時段", trips: 897, vol: 9689.96, cap: 11939.1, rate: 81.16, ovTrips: 227, ovRate: 25.31, isSub: true },
+        // 8月
+        { month: "8月", wh: "SDTC", shift: "日配", trips: 225, vol: 2061.82, cap: 2992.5, rate: 68.90, ovTrips: 28, ovRate: 12.44 },
+        { month: "8月", wh: "SDTC", shift: "夜配", trips: 225, vol: 2317.83, cap: 2992.5, rate: 77.45, ovTrips: 40, ovRate: 17.78 },
+        { month: "8月", wh: "SDHN", shift: "日配", trips: 192, vol: 1335.22, cap: 2539.2, rate: 52.58, ovTrips: 9, ovRate: 4.69 },
+        { month: "8月", wh: "SDHN", shift: "夜配", trips: 240, vol: 3009.46, cap: 3206.4, rate: 93.86, ovTrips: 96, ovRate: 40.00 },
+        { month: "8月小計", wh: "兩倉合計", shift: "全時段", trips: 882, vol: 8724.33, cap: 11730.6, rate: 74.37, ovTrips: 173, ovRate: 19.61, isSub: true },
+        // 9月
+        { month: "9月", wh: "SDTC", shift: "日配", trips: 216, vol: 2099.67, cap: 2872.8, rate: 73.09, ovTrips: 32, ovRate: 14.81 },
+        { month: "9月", wh: "SDTC", shift: "夜配", trips: 216, vol: 2208.35, cap: 2872.8, rate: 76.87, ovTrips: 39, ovRate: 18.06 },
+        { month: "9月", wh: "SDHN", shift: "日配", trips: 192, vol: 1410.83, cap: 2539.2, rate: 55.56, ovTrips: 7, ovRate: 3.65 },
+        { month: "9月", wh: "SDHN", shift: "夜配", trips: 239, vol: 3153.40, cap: 3197.9, rate: 98.61, ovTrips: 105, ovRate: 43.93 },
+        { month: "9月小計", wh: "兩倉合計", shift: "全時段", trips: 863, vol: 8872.25, cap: 11482.7, rate: 77.27, ovTrips: 183, ovRate: 21.21, isSub: true },
+        // 10月
+        { month: "10月", wh: "SDTC", shift: "日配", trips: 197, vol: 2306.00, cap: 2619.5, rate: 88.03, ovTrips: 57, ovRate: 28.93 },
+        { month: "10月", wh: "SDTC", shift: "夜配", trips: 197, vol: 2258.27, cap: 2624.9, rate: 86.03, ovTrips: 53, ovRate: 26.90 },
+        { month: "10月", wh: "SDHN", shift: "日配", trips: 184, vol: 1462.03, cap: 2433.4, rate: 60.08, ovTrips: 15, ovRate: 8.15 },
+        { month: "10月", wh: "SDHN", shift: "夜配", trips: 226, vol: 3168.92, cap: 3038.8, rate: 104.28, ovTrips: 119, ovRate: 52.65 },
+        { month: "10月小計", wh: "兩倉合計", shift: "全時段", trips: 804, vol: 9195.22, cap: 10716.6, rate: 85.80, ovTrips: 244, ovRate: 30.35, isSub: true }
+      ],
+      // 12 筆異常備查
+      outliers: [
+        { seq: 1, date: "2026/05/04", wh: "SDHN", shift: "夜配", route: "K27", cap: 8.5, vol: 21.93, rate: 258.0, reason: "8.5噸 > 20噸 (約>235%)" },
+        { seq: 2, date: "2026/06/23", wh: "SDTC", shift: "夜配", route: "B", cap: 13.9, vol: 40.06, rate: 288.2, reason: "13.9噸 > 34噸 (約>245%)" },
+        { seq: 3, date: "2026/07/13", wh: "SDHN", shift: "夜配", route: "K22", cap: 13.9, vol: 36.04, rate: 259.3, reason: "13.9噸 > 34噸 (約>245%)" },
+        { seq: 4, date: "2026/07/13", wh: "SDHN", shift: "夜配", route: "K27", cap: 8.5, vol: 20.44, rate: 240.4, reason: "8.5噸 > 20噸 (約>235%)" },
+        { seq: 5, date: "2026/07/14", wh: "SDHN", shift: "夜配", route: "K27", cap: 8.5, vol: 21.30, rate: 250.6, reason: "8.5噸 > 20噸 (約>235%)" },
+        { seq: 6, date: "2026/09/01", wh: "SDHN", shift: "夜配", route: "K27", cap: 8.5, vol: 23.78, rate: 279.8, reason: "8.5噸 > 20噸 (約>235%)" },
+        { seq: 7, date: "2026/10/02", wh: "SDHN", shift: "夜配", route: "K27", cap: 8.5, vol: 21.01, rate: 247.2, reason: "8.5噸 > 20噸 (約>235%)" },
+        { seq: 8, date: "2026/10/05", wh: "SDHN", shift: "夜配", route: "K27", cap: 8.5, vol: 23.18, rate: 272.7, reason: "8.5噸 > 20噸 (約>235%)" },
+        { seq: 9, date: "2026/10/12", wh: "SDHN", shift: "夜配", route: "K27", cap: 8.5, vol: 21.36, rate: 251.3, reason: "8.5噸 > 20噸 (約>235%)" },
+        { seq: 10, date: "2026/10/20", wh: "SDTC", shift: "夜配", route: "A", cap: 8.5, vol: 31.62, rate: 372.0, reason: "8.5噸 > 20噸 (約>235%)" },
+        { seq: 11, date: "2026/10/27", wh: "SDHN", shift: "夜配", route: "K27", cap: 8.5, vol: 21.07, rate: 247.9, reason: "8.5噸 > 20噸 (約>235%)" },
+        { seq: 12, date: "2026/10/27", wh: "SDTC", shift: "日配", route: "G", cap: 13.9, vol: 36.63, rate: 263.6, reason: "13.9噸 > 34噸 (約>245%)" }
+      ]
+    };
+
+    let barChartInstance = null;
+    let radarChartInstance = null;
+
+    // 頁籤切換
+    function switchTab(tabId) {
+      document.querySelectorAll('[id^="view-"]').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-pill').forEach(btn => btn.classList.remove('active'));
+
+      const targetView = document.getElementById(`view-${tabId}`);
+      const targetBtn = document.getElementById(`tab-${tabId}`);
+      if (targetView) targetView.classList.remove('hidden');
+      if (targetBtn) targetBtn.classList.add('active');
+
+      if (tabId === 'overview') {
+        renderCharts();
+      }
+    }
+
+    // 提示訊息輔助函式
+    function showAlert(msg) {
+      const b = document.getElementById('alertBox');
+      b.innerText = msg;
+      b.classList.remove('hidden');
+      setTimeout(() => b.classList.add('hidden'), 5000);
+    }
+
+    // 渲染 36 條路線穿透總表
+    function renderDrilldownTable() {
+      const tbody = document.getElementById('drillTableBody');
+      tbody.innerHTML = '';
+
+      const filterG = document.getElementById('filterGroup')?.value || 'ALL';
+      const filterS = document.getElementById('filterStatus')?.value || 'ALL';
+      const regularOnly = (document.getElementById('filterRegularOnly')?.value || 'YES') === 'YES';
+      const query = (document.getElementById('routeSearch')?.value || '').trim().toUpperCase();
+
+      currentData.hierarchy.forEach(g => {
+        if (filterG !== 'ALL' && g.key !== filterG) return;
+
+        // 組別小計列
+        const trGroup = document.createElement('tr');
+        trGroup.className = 'bg-slate-200/80 font-bold border-t-2 border-slate-300';
+        trGroup.innerHTML = `
+          <td class="py-2.5 px-3 text-center text-slate-500"><i class="fa-solid fa-layer-group"></i></td>
+          <td class="py-2.5 px-3 text-center text-slate-900">${g.warehouse}</td>
+          <td class="py-2.5 px-3 text-center text-slate-900">${g.shift}</td>
+          <td class="py-2.5 px-4 text-slate-900 font-extrabold">${g.warehouse} ${g.shift}合計 (小計)</td>
+          <td class="py-2.5 px-3 text-center text-slate-500">-</td>
+          <td class="py-2.5 px-3 text-right">${g.trips.toLocaleString()}</td>
+          <td class="py-2.5 px-4 text-right">${g.volume.toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1})}</td>
+          <td class="py-2.5 px-4 text-right">${g.capacity.toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1})}</td>
+          <td class="py-2.5 px-4 text-right text-blue-900 font-extrabold">${g.rate.toFixed(1)}%</td>
+          <td class="py-2.5 px-3 text-right">${g.overloadRate.toFixed(1)}%</td>
+          <td class="py-2.5 px-4 text-left font-semibold text-slate-700">${g.warehouse} ${g.shift}組小計</td>
+        `;
+        tbody.appendChild(trGroup);
+
+        // 該組路線
+        g.routes.forEach(r => {
+          // 篩選判定
+          const isOver = r.rate >= 100;
+          const isUnder = r.rate < 60;
+          if (filterS === 'OVERLOAD' && !isOver) return;
+          if (filterS === 'NORMAL' && (isOver || isUnder)) return;
+          if (filterS === 'UNDER' && !isUnder) return;
+
+          // 處理常態據點分離
+          const locPack = processRouteLocations(g.key, r.route, r.locs);
+          const displayLocs = regularOnly ? locPack.regularOnly : locPack.all;
+
+          if (query) {
+            const matchRoute = r.route.toUpperCase().includes(query);
+            const matchLoc = displayLocs.some(l => l.code.toUpperCase().includes(query));
+            if (!matchRoute && !matchLoc) return;
+          }
+
+          const routeId = `route-${g.key}-${r.route}`;
+
+          let badge = '';
+          if (r.rate >= 110) badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">極度超載</span>';
+          else if (r.rate >= 100) badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700 border border-rose-300">超載警戒</span>';
+          else if (r.rate >= 75) badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">良好穩定</span>';
+          else if (r.rate >= 60) badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-300">負載偏低</span>';
+          else badge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">運能過剩</span>';
+
+          // 路線列
+          const trRoute = document.createElement('tr');
+          trRoute.className = `cursor-pointer transition hover:bg-blue-50/70 ${isOver ? 'bg-red-50/40 font-semibold' : 'bg-white'}`;
+          trRoute.onclick = () => toggleRow(routeId);
+
+          trRoute.innerHTML = `
+            <td class="py-3 px-3 text-center">
+              <button id="btn-${routeId}" class="w-5 h-5 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center font-bold text-xs transition">
+                +
+              </button>
+            </td>
+            <td class="py-3 px-3 text-center font-semibold text-slate-700">${g.warehouse}</td>
+            <td class="py-3 px-3 text-center">
+              <span class="px-1.5 py-0.5 rounded text-[10px] font-medium ${g.shift === '夜配' ? 'bg-indigo-100 text-indigo-800' : 'bg-amber-100 text-amber-800'}">
+                ${g.shift}
+              </span>
+            </td>
+            <td class="py-3 px-4 font-bold text-slate-900 text-sm">
+              路線 [${r.route}]
+              <span class="text-[11px] font-normal text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 ml-1">
+                ${locPack.regularOnly.length} 常態據點
+              </span>
+            </td>
+            <td class="py-3 px-3 text-center font-medium">${r.cap} 噸</td>
+            <td class="py-3 px-3 text-right font-medium">${r.days.toLocaleString()}</td>
+            <td class="py-3 px-4 text-right font-medium">${r.vol.toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1})}</td>
+            <td class="py-3 px-4 text-right text-slate-500">${r.totCap.toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1})}</td>
+            <td class="py-3 px-4 text-right">
+              <div class="flex items-center justify-end space-x-2">
+                <div class="w-16 bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                  <div class="${isOver ? 'bg-rose-600' : (isUnder ? 'bg-amber-500' : 'bg-blue-600')} h-1.5 rounded-full" style="width: ${Math.min(r.rate, 100)}%"></div>
+                </div>
+                <span class="font-extrabold ${isOver ? 'text-rose-600' : 'text-slate-900'}">${r.rate.toFixed(1)}%</span>
+              </div>
+            </td>
+            <td class="py-3 px-3 text-right font-medium ${r.ovRate > 30 ? 'text-rose-600 font-bold' : 'text-slate-600'}">
+              ${r.ovRate.toFixed(1)}% <span class="text-[10px] text-slate-400">(${r.ovDays}天)</span>
+            </td>
+            <td class="py-3 px-4 text-left">${badge}</td>
+          `;
+          tbody.appendChild(trRoute);
+
+          // 據點展開容器
+          const trLocs = document.createElement('tr');
+          trLocs.id = routeId;
+          trLocs.className = 'hidden bg-slate-50 border-y border-slate-200';
+          trLocs.innerHTML = `
+            <td colspan="11" class="p-3 pl-10">
+              <div class="bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
+                <div class="flex justify-between items-center mb-2 pb-1 border-b border-slate-100 text-xs">
+                  <div class="flex items-center space-x-2">
+                    <span class="font-bold text-slate-800">路線 [${r.route}] 核定常態配送據點明細</span>
+                    ${regularOnly ? '<span class="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-medium">已套用常態據點過濾</span>' : '<span class="text-[10px] text-slate-500">含零星調度據點</span>'}
+                  </div>
+                  <span class="text-slate-500 text-[11px]">路線平均積載率：<strong class="text-blue-900">${r.rate.toFixed(1)}%</strong></span>
+                </div>
+                <table class="w-full text-xs">
+                  <thead>
+                    <tr class="text-slate-400 border-b border-slate-100 text-[10px]">
+                      <th class="py-1 text-left">據點代號與性質</th>
+                      <th class="py-1 text-right">累計貨量 (噸)</th>
+                      <th class="py-1 text-right">路線貨量佔比 (%)</th>
+                      <th class="py-1 text-right">據點獨立積載率 (%)</th>
+                      <th class="py-1 pl-4 text-left">積載率貢獻條</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${displayLocs.map(loc => `
+                      <tr class="border-b border-slate-50 hover:bg-slate-50 ${loc.isRegular === false ? 'bg-amber-50/50 italic text-slate-500' : ''}">
+                        <td class="py-1.5 font-bold ${loc.isRegular === false ? 'text-amber-800' : 'text-slate-800'}">
+                          ${loc.isRegular === false ? '<i class="fa-solid fa-boxes-packing mr-1 text-amber-600"></i>' : '<i class="fa-solid fa-location-dot mr-1 text-blue-500"></i>'}
+                          ${loc.isRegular === false ? loc.code : '常態據點 ' + loc.code}
+                        </td>
+                        <td class="py-1.5 text-right font-medium text-slate-700">${loc.vol.toFixed(2)}</td>
+                        <td class="py-1.5 text-right text-slate-500">${loc.share.toFixed(1)}%</td>
+                        <td class="py-1.5 text-right font-bold text-blue-900">${loc.rate.toFixed(1)}%</td>
+                        <td class="py-1.5 pl-4">
+                          <div class="flex items-center space-x-2">
+                            <div class="w-28 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                              <div class="${loc.isRegular === false ? 'bg-amber-400' : 'bg-blue-500'} h-1.5 rounded-full" style="width: ${Math.min((loc.rate / (r.rate || 1)) * 100, 100)}%"></div>
+                            </div>
+                            <span class="text-[10px] text-slate-400">佔 ${((loc.rate / (r.rate || 1)) * 100).toFixed(0)}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </td>
+          `;
+          tbody.appendChild(trLocs);
+        });
+      });
+
+      // 兩倉全期合計
+      const trGrand = document.createElement('tr');
+      trGrand.className = 'bg-blue-900 text-white font-extrabold text-sm border-t-2 border-blue-950';
+      trGrand.innerHTML = `
+        <td class="py-3 px-3 text-center"><i class="fa-solid fa-flag-checkered"></i></td>
+        <td class="py-3 px-3 text-center">兩倉合計</td>
+        <td class="py-3 px-3 text-center">全時段</td>
+        <td class="py-3 px-4 font-black">全台 36 條路線全期總計</td>
+        <td class="py-3 px-3 text-center">-</td>
+        <td class="py-3 px-3 text-right">${currentData.summary.trips.toLocaleString()}</td>
+        <td class="py-3 px-4 text-right">${currentData.summary.volume.toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1})}</td>
+        <td class="py-3 px-4 text-right">${currentData.summary.capacity.toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1})}</td>
+        <td class="py-3 px-4 text-right text-amber-300 font-black">${currentData.summary.rate.toFixed(1)}%</td>
+        <td class="py-3 px-3 text-right">${currentData.summary.overloadRate.toFixed(1)}%</td>
+        <td class="py-3 px-4 text-left text-blue-200">全期營運總結</td>
+      `;
+      tbody.appendChild(trGrand);
+    }
+
+    // 展開/收合單一路線
+    function toggleRow(routeId) {
+      const el = document.getElementById(routeId);
+      const btn = document.getElementById(`btn-${routeId}`);
+      if (!el || !btn) return;
+      if (el.classList.contains('hidden')) {
+        el.classList.remove('hidden');
+        btn.innerText = '-';
+        btn.classList.add('bg-blue-600', 'text-white');
+      } else {
+        el.classList.add('hidden');
+        btn.innerText = '+';
+        btn.classList.remove('bg-blue-600', 'text-white');
+      }
+    }
+
+    // 展開/收合全部路線
+    function toggleAllDrill(expand) {
+      currentData.hierarchy.forEach(g => {
+        g.routes.forEach(r => {
+          const routeId = `route-${g.key}-${r.route}`;
+          const el = document.getElementById(routeId);
+          const btn = document.getElementById(`btn-${routeId}`);
+          if (!el || !btn) return;
+          if (expand) {
+            el.classList.remove('hidden');
+            btn.innerText = '-';
+            btn.classList.add('bg-blue-600', 'text-white');
+          } else {
+            el.classList.add('hidden');
+            btn.innerText = '+';
+            btn.classList.remove('bg-blue-600', 'text-white');
+          }
+        });
+      });
+    }
+
+    function filterRoutes() {
+      renderDrilldownTable();
+    }
+
+    // 渲染月度趨勢表
+    function renderTrendsTable() {
+      const tbody = document.getElementById('trendsTableBody');
+      tbody.innerHTML = '';
+
+      currentData.trends.forEach(row => {
+        const tr = document.createElement('tr');
+        const isGrand = row.isGrand;
+        const isSub = row.isSub;
+
+        if (isGrand) {
+          tr.className = 'bg-blue-900 text-white font-extrabold text-sm';
+        } else if (isSub) {
+          tr.className = 'bg-slate-200 font-bold';
+        } else {
+          tr.className = 'hover:bg-slate-50 transition';
+        }
+
+        tr.innerHTML = `
+          <td class="py-2.5 px-4 text-center font-semibold ${isGrand ? 'text-amber-300' : ''}">${row.month}</td>
+          <td class="py-2.5 px-3 text-center">${row.wh}</td>
+          <td class="py-2.5 px-3 text-center">${row.shift}</td>
+          <td class="py-2.5 px-4 text-right">${row.trips.toLocaleString()}</td>
+          <td class="py-2.5 px-4 text-right">${row.vol.toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1})}</td>
+          <td class="py-2.5 px-4 text-right">${row.cap.toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1})}</td>
+          <td class="py-2.5 px-4 text-right font-extrabold ${row.rate >= 100 && !isGrand ? 'text-rose-600' : (isGrand ? 'text-amber-300' : '')}">
+            ${row.rate.toFixed(1)}%
+          </td>
+          <td class="py-2.5 px-4 text-right">${row.ovTrips.toLocaleString()}</td>
+          <td class="py-2.5 px-4 text-right">${row.ovRate.toFixed(1)}%</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // 渲染 12 筆異常備查
+    function renderOutliersTable() {
+      const tbody = document.getElementById('outliersTableBody');
+      tbody.innerHTML = '';
+
+      currentData.outliers.forEach(o => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-rose-50/40 transition';
+        tr.innerHTML = `
+          <td class="py-2.5 px-3 text-center font-bold text-slate-500">${o.seq}</td>
+          <td class="py-2.5 px-4 text-center font-mono font-medium">${o.date}</td>
+          <td class="py-2.5 px-3 text-center font-semibold">${o.wh}</td>
+          <td class="py-2.5 px-3 text-center">${o.shift}</td>
+          <td class="py-2.5 px-3 text-center font-bold text-blue-900">${o.route}</td>
+          <td class="py-2.5 px-3 text-center">${o.cap} 噸</td>
+          <td class="py-2.5 px-4 text-right font-extrabold text-rose-600">${o.vol.toFixed(2)}</td>
+          <td class="py-2.5 px-4 text-right font-black text-rose-700">${o.rate.toFixed(1)}%</td>
+          <td class="py-2.5 px-6 text-left text-slate-600">${o.reason}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // 渲染圖表
+    function renderCharts() {
+      // 蒐集所有 36 條路線並排序
+      const allR = [];
+      currentData.hierarchy.forEach(g => {
+        g.routes.forEach(r => {
+          allR.push({
+            name: `${g.warehouse}-${g.shift}${r.route}`,
+            rate: r.rate
+          });
+        });
+      });
+      allR.sort((a, b) => b.rate - a.rate);
+
+      // 長條圖
+      const ctxBar = document.getElementById('routeBarChart');
+      if (ctxBar) {
+        if (barChartInstance) barChartInstance.destroy();
+        barChartInstance = new Chart(ctxBar.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: allR.map(item => item.name),
+            datasets: [{
+              label: '積載率 (%)',
+              data: allR.map(item => item.rate),
+              backgroundColor: allR.map(item => item.rate >= 100 ? '#EF4444' : (item.rate < 60 ? '#F59E0B' : '#3B82F6')),
+              borderRadius: 3
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => `積載率: ${ctx.raw.toFixed(1)}%`
+                }
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                max: 160,
+                ticks: { callback: v => v + '%' },
+                grid: { color: '#F1F5F9' }
+              },
+              x: {
+                ticks: { font: { size: 9 }, maxRotation: 45, minRotation: 45 },
+                grid: { display: false }
+              }
+            }
+          }
+        });
+      }
+
+      // 雷達/極座標圖 (四大組別依序)
+      const ctxRadar = document.getElementById('whRadarChart');
+      if (ctxRadar) {
+        if (radarChartInstance) radarChartInstance.destroy();
+        radarChartInstance = new Chart(ctxRadar.getContext('2d'), {
+          type: 'polarArea',
+          data: {
+            labels: ['SDTC 日配', 'SDTC 夜配', 'SDHN 日配', 'SDHN 夜配'],
+            datasets: [{
+              data: currentData.hierarchy.map(g => g.rate),
+              backgroundColor: [
+                'rgba(16, 185, 129, 0.75)',
+                'rgba(59, 130, 246, 0.75)',
+                'rgba(245, 158, 11, 0.75)',
+                'rgba(239, 68, 68, 0.75)'
+              ]
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              r: {
+                suggestedMax: 100,
+                ticks: { display: false }
+              }
+            }
+          }
+        });
+      }
+    }
+
+    // ==================== 本地 EXCEL 檔案拖曳與解析引擎 ====================
+    function handleExcelUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      showAlert(`正在本機解析【${file.name}】營運數據，請稍候...`);
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+          const rawRows = XLSX.utils.sheet_to_json(firstSheet);
+
+          if (!rawRows || rawRows.length === 0) {
+            showAlert("上傳之 Excel 檔案無有效資料列！");
+            return;
+          }
+
+          processRawExcel(rawRows, file.name);
+        } catch (err) {
+          showAlert("Excel 檔案解析失敗，請確認檔案格式是否正確。");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // 核心資料清洗與重算邏輯 (嚴格落實 SDTC A~K、SDHN 算式 A、8.5t/13.9t、12筆離群值剔除)
+    function processRawExcel(rows, filename) {
+      const sdtcRoutes = new Set(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'K']);
+      const sdhnDay = new Set(['K1', 'K2', 'K3', 'K4', 'K5', 'K6', 'K7', 'K8']);
+      const sdhnNight = new Set(['K21', 'K22', 'K23', 'K24', 'K25', 'K26', 'K27', 'K28', 'K29', 'K30']);
+
+      const cleanRows = [];
+      rows.forEach(r => {
+        const wh = String(r['倉庫'] || '').trim();
+        const route = String(r['路線'] || '').trim();
+        let shift = String(r['日夜配'] || '').trim();
+        const vol = parseFloat(r['總積載量'] || 0);
+
+        if (wh === 'SDTC') {
+          if (!sdtcRoutes.has(route)) return;
+          if (shift !== '日' && shift !== '夜') return;
+        } else if (wh === 'SDHN') {
+          if (sdhnDay.has(route)) {
+            shift = '日';
+          } else if (sdhnNight.has(route)) {
+            shift = '夜';
+          } else {
+            return;
+          }
+        } else {
+          return;
+        }
+
+        let cap = 13.9;
+        if (wh === 'SDTC' && route === 'A') cap = 8.5;
+        if (wh === 'SDHN' && (route === 'K7' || route === 'K27')) cap = 8.5;
+
+        cleanRows.push({
+          month: parseInt(r['月份'] || 0),
+          date: String(r['日期'] || '').trim(),
+          wh: wh,
+          shift: shift,
+          route: route,
+          loc: String(r['據點'] || '').trim(),
+          cap: cap,
+          vol: vol,
+          tripId: `${r['日期']}_${wh}_${shift}_${route}`
+        });
+      });
+
+      // 彙整每車次以檢核離群值
+      const tripMap = {};
+      cleanRows.forEach(r => {
+        if (!tripMap[r.tripId]) {
+          tripMap[r.tripId] = {
+            tripId: r.tripId,
+            month: r.month,
+            date: r.date,
+            wh: r.wh,
+            shift: r.shift,
+            route: r.route,
+            cap: r.cap,
+            vol: 0
+          };
+        }
+        tripMap[r.tripId].vol += r.vol;
+      });
+
+      const outlierSet = new Set();
+      const outlierList = [];
+      let seq = 1;
+
+      Object.values(tripMap).forEach(t => {
+        let isOutlier = false;
+        let reason = '';
+        if (t.cap === 8.5 && t.vol > 20) {
+          isOutlier = true;
+          reason = '8.5噸 > 20噸 (約>235%)';
+        } else if (t.cap === 13.9 && t.vol > 34) {
+          isOutlier = true;
+          reason = '13.9噸 > 34噸 (約>245%)';
+        }
+
+        if (isOutlier) {
+          outlierSet.add(t.tripId);
+          outlierList.push({
+            seq: seq++,
+            date: t.date,
+            wh: t.wh,
+            shift: `${t.shift}配`,
+            route: t.route,
+            cap: t.cap,
+            vol: t.vol,
+            rate: (t.vol / t.cap) * 100,
+            reason: reason
+          });
+        }
+      });
+
+      // 剔除離群值後的有效流水帳
+      const validRows = cleanRows.filter(r => !outlierSet.has(r.tripId));
+      const validTrips = Object.values(tripMap).filter(t => !outlierSet.has(t.tripId));
+
+      showAlert(`成功載入【${filename}】！已剔除 ${outlierList.length} 筆離群值，共 ${validTrips.length} 筆有效出車。`);
+
+      // 重新建立層級
+      rebuildHierarchy(validTrips, validRows, outlierList);
+    }
+
+    function rebuildHierarchy(validTrips, validRows, outlierList) {
+      // 重新計算總覽與階層
+      const groupDefs = [
+        { key: "SDTC_日", wh: "SDTC", shift: "日", label: "日配", routes: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'K'] },
+        { key: "SDTC_夜", wh: "SDTC", shift: "夜", label: "夜配", routes: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'K'] },
+        { key: "SDHN_日", wh: "SDHN", shift: "日", label: "日配", routes: ['K1', 'K2', 'K3', 'K4', 'K5', 'K6', 'K7', 'K8'] },
+        { key: "SDHN_夜", wh: "SDHN", shift: "夜", label: "夜配", routes: ['K21', 'K22', 'K23', 'K24', 'K25', 'K26', 'K27', 'K28', 'K29', 'K30'] }
+      ];
+
+      let totTrips = validTrips.length;
+      let totVol = validTrips.reduce((s, t) => s + t.vol, 0);
+      let totCap = validTrips.reduce((s, t) => s + t.cap, 0);
+      let totOver = validTrips.filter(t => t.vol > t.cap).length;
+
+      currentData.summary = {
+        trips: totTrips,
+        volume: totVol,
+        capacity: totCap,
+        rate: (totVol / totCap) * 100,
+        overloadTrips: totOver,
+        overloadRate: (totOver / totTrips) * 100,
+        outlierCount: outlierList.length
+      };
+
+      // 更新 KPI 卡片
+      document.getElementById('kpi-trips').innerHTML = `${totTrips.toLocaleString()} <span class="text-xs font-normal text-slate-500">車次</span>`;
+      document.getElementById('kpi-volume').innerHTML = `${totVol.toLocaleString(undefined, {maximumFractionDigits: 1})} <span class="text-xs font-normal text-slate-500">噸</span>`;
+      document.getElementById('kpi-rate').innerText = `${currentData.summary.rate.toFixed(2)}%`;
+      document.getElementById('kpi-overload').innerText = `${currentData.summary.overloadRate.toFixed(2)}%`;
+      document.getElementById('kpi-outliers').innerHTML = `${outlierList.length} <span class="text-xs font-normal text-slate-500">班次</span>`;
+
+      // 建立組別結構
+      const newHierarchy = [];
+      groupDefs.forEach(gd => {
+        const gTrips = validTrips.filter(t => t.wh === gd.wh && t.shift === gd.shift);
+        const gVol = gTrips.reduce((s, t) => s + t.vol, 0);
+        const gCap = gTrips.reduce((s, t) => s + t.cap, 0);
+        const gOv = gTrips.filter(t => t.vol > t.cap).length;
+
+        const routeList = [];
+        gd.routes.forEach(rCode => {
+          const rTrips = gTrips.filter(t => t.route === rCode);
+          const rDays = rTrips.length;
+          const rVol = rTrips.reduce((s, t) => s + t.vol, 0);
+          const rCap = rTrips.reduce((s, t) => s + t.cap, 0);
+          const rOv = rTrips.filter(t => t.vol > t.cap).length;
+          const capUnit = rTrips[0]?.cap || 13.9;
+
+          // 據點
+          const locMap = {};
+          validRows.filter(row => row.wh === gd.wh && row.shift === gd.shift && row.route === rCode).forEach(row => {
+            locMap[row.loc] = (locMap[row.loc] || 0) + row.vol;
+          });
+
+          const locList = Object.entries(locMap).map(([code, vol]) => ({
+            code: code,
+            vol: vol,
+            share: rVol > 0 ? (vol / rVol) * 100 : 0,
+            rate: rCap > 0 ? (vol / rCap) * 100 : 0
+          })).sort((a, b) => b.vol - a.vol);
+
+          routeList.push({
+            route: rCode,
+            cap: capUnit,
+            days: rDays,
+            vol: rVol,
+            totCap: rCap,
+            rate: rCap > 0 ? (rVol / rCap) * 100 : 0,
+            ovDays: rOv,
+            ovRate: rDays > 0 ? (rOv / rDays) * 100 : 0,
+            locs: locList
+          });
+        });
+
+        newHierarchy.push({
+          key: gd.key,
+          warehouse: gd.wh,
+          shift: gd.label,
+          trips: gTrips.length,
+          volume: gVol,
+          capacity: gCap,
+          rate: gCap > 0 ? (gVol / gCap) * 100 : 0,
+          overloadTrips: gOv,
+          overloadRate: gTrips.length > 0 ? (gOv / gTrips.length) * 100 : 0,
+          routes: routeList
+        });
+      });
+
+      currentData.hierarchy = newHierarchy;
+      currentData.outliers = outlierList;
+
+      renderDrilldownTable();
+      renderCharts();
+      renderOutliersTable();
+    }
+
+    // 初始化
+    window.onload = function() {
+      renderDrilldownTable();
+      renderTrendsTable();
+      renderOutliersTable();
+      renderCharts();
+    };
+  </script>
+</body>
+</html>
